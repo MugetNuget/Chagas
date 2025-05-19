@@ -1,4 +1,5 @@
 samitrop_output/
 ptbxl_output/
 venv310/
-
+test/
+dataset_balanceado/

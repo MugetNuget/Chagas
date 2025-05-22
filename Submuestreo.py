@@ -25,7 +25,7 @@ for base in bases_dir:
 positivos_dir= bases_dir[0]
 
 # Carpeta destino balanceada
-balanceado_dir = 'dataset_balanceado'
+balanceado_dir = 'dataset_submuestreado'
 positivos_dest = os.path.join(balanceado_dir, 'positivos')
 negativos_dest = os.path.join(balanceado_dir, 'negativos')
 

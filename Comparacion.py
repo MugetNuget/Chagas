@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 # Configuración
 BASE_ORIG_PATH = 'dataset_submuestreado'
-BASE_NORM_PATH = 'dataset_normalizado'
+BASE_NORM_PATH = 'Nueva carpeta'
 LABELS = ['positivos', 'negativos']
 CANAL = 'I'  # Cambiar si deseas otro canal (e.g., 'II', 'V1')
 N_MUESTRAS = 4000  # muestras a graficar (10 segundos a 400 Hz)

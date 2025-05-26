@@ -3,96 +3,89 @@ import wfdb
 import numpy as np
 from scipy.signal import resample
 
-fs_target = 400
-duration_target = 10
-samples_target = fs_target * duration_target
+# ---- USER PARAMETERS ----
+INPUT_DIR      = "dataset_submuestreado"
+OUTPUT_DIR     = "dataset_standardized"
+TARGET_FS      = 400               # Hz
+DURATION_SEC   = 10                # seconds
+TARGET_SAMPLES = TARGET_FS * DURATION_SEC  # 4000 samples
 
-input_root = 'dataset_submuestreado'
-output_root = 'dataset_resampled'
+# make output folders
+for label in ("positivos","negativos"):
+    os.makedirs(os.path.join(OUTPUT_DIR, label), exist_ok=True)
 
-def ensure_dir(path):
-    if not os.path.exists(path):
-        os.makedirs(path)
+# ---- FUNCTIONS ----
+def standardize_ecg(sig: np.ndarray, orig_fs: float) -> np.ndarray:
+    """
+    sig: shape (n_samples, n_leads)
+    returns: shape (TARGET_SAMPLES, n_leads) resampled, clipped/padded, normalized
+    """
+    # 1) Resample
+    if orig_fs != TARGET_FS:
+        new_len = int(sig.shape[0] * TARGET_FS / orig_fs)
+        sig = resample(sig, new_len, axis=0)
 
-def read_hea_metadata(hea_path):
-    """Leer archivo .hea y extraer etiquetas # Age, # Sex, # Chagas label y demás líneas"""
+    # 2) Clip or pad
+    if sig.shape[0] > TARGET_SAMPLES:
+        sig = sig[:TARGET_SAMPLES]
+    elif sig.shape[0] < TARGET_SAMPLES:
+        pad = TARGET_SAMPLES - sig.shape[0]
+        sig = np.vstack([sig, np.zeros((pad, sig.shape[1]))])
+
+    # 3) Magnitude normalization to [-1,1]
+    max_vals = np.max(np.abs(sig), axis=0, keepdims=True) + 1e-6
+    return sig / max_vals
+
+def read_header_comments(hea_path: str) -> list[str]:
+    """
+    Reads all lines beginning with '#' from a .hea file,
+    strips the leading '# ' and newline, and returns them as a list.
+    """
+    comments = []
     with open(hea_path, 'r') as f:
-        lines = f.readlines()
+        for line in f:
+            if line.startswith('#'):
+                comments.append(line.lstrip('# ').rstrip('\n'))
+    return comments
 
-    metadata_lines = []
-    for line in lines:
-        if line.startswith('# Age') or line.startswith('# Sex') or line.startswith('# Chagas label'):
-            metadata_lines.append(line.strip())
-    return metadata_lines, lines
+# ---- MAIN LOOP ----
+for label in ("positivos","negativos"):
+    in_dir  = os.path.join(INPUT_DIR,  label)
+    out_dir = os.path.join(OUTPUT_DIR, label)
 
-def write_hea_with_metadata(output_hea_path, wfdb_header_lines, metadata_lines):
-    """
-    wfdb_header_lines: líneas que genera wfdb (para la cabecera estándar)
-    metadata_lines: líneas de etiquetas originales que queremos conservar
-    """
-    # Escribimos el archivo .hea completo:
-    # Primero las líneas estándar de wfdb
-    with open(output_hea_path, 'w') as f:
-        for line in wfdb_header_lines:
-            f.write(line + '\n')
-        # Luego añadimos las etiquetas originales
-        for meta_line in metadata_lines:
-            f.write(meta_line + '\n')
+    # iterate over each .hea in the folder
+    for fn in sorted(os.listdir(in_dir)):
+        if not fn.lower().endswith(".hea"):
+            continue
+        basename = fn[:-4]
+        record_path = os.path.join(in_dir, basename)
 
-def process_record(record_path, output_path):
-    record = wfdb.rdrecord(record_path)
-    signal = record.p_signal
-    fs_orig = record.fs
-    
-    samples_orig_target = int(duration_target * fs_orig)
-    if signal.shape[0] > samples_orig_target:
-        signal_cropped = signal[:samples_orig_target, :]
-    else:
-        pad_length = samples_orig_target - signal.shape[0]
-        signal_cropped = np.pad(signal, ((0, pad_length), (0,0)), 'constant')
+        # 1) load original record
+        rec     = wfdb.rdrecord(record_path)
+        sig     = rec.p_signal                # shape (n_samples, n_leads)
+        orig_fs = rec.fs
 
-    signal_resampled = resample(signal_cropped, samples_target, axis=0)
+        # 2) standardize
+        sig_std = standardize_ecg(sig, orig_fs)  # (4000, n_leads)
 
-    # Guardar con wfdb
-    wfdb.wrsamp(
-        record_name=output_path,
-        fs=fs_target,
-        units=record.units,
-        sig_name=record.sig_name,
-        p_signal=signal_resampled,
-        fmt=record.fmt
-    )
+        # 3) grab original metadata comments
+        hea_in   = os.path.join(in_dir, basename + ".hea")
+        comments = read_header_comments(hea_in)
 
-    # Ahora modificamos el .hea para agregar las etiquetas originales
-    input_hea_path = record_path + '.hea'
-    output_hea_path = output_path + '.hea'
+        # 4) write out standardized record + preserved metadata
+        wfdb.wrsamp(
+            record_name=basename,
+            fs=TARGET_FS,
+            units=rec.units,               # e.g. ['mV']*12
+            sig_name=rec.sig_name,         # e.g. ['I','II',...,'V6']
+            p_signal=sig_std,              # (4000,12) physical units in mV
+            fmt=rec.fmt,                   # typically ['16']*12
+            adc_gain=[1000]*sig_std.shape[1],
+            baseline=[0]*sig_std.shape[1],
+            comments=comments,             # your original '# Age: …' etc.
+            write_dir=out_dir
+        )
 
-    metadata_lines, original_hea_lines = read_hea_metadata(input_hea_path)
+        #print(f"Standardized → {label}/{basename}")
 
-    # Las líneas que creó wfdb en el archivo .hea recien creado
-    with open(output_hea_path, 'r') as f:
-        wfdb_header_lines = [line.strip() for line in f.readlines() if not line.startswith('#')]
-
-    # Sobreescribir el .hea con las líneas estándar + las etiquetas
-    write_hea_with_metadata(output_hea_path, wfdb_header_lines, metadata_lines)
-
-    print(f'Procesado {record_path} -> {output_path}')
-
-def main():
-    for label in ['positivos', 'negativos']:
-        input_folder = os.path.join(input_root, label)
-        output_folder = os.path.join(output_root, label)
-        ensure_dir(output_folder)
-
-        for file in os.listdir(input_folder):
-            if file.endswith('.hea'):
-                record_name = file[:-4]
-                input_record_path = os.path.join(input_folder, record_name)
-                output_record_path = os.path.join(output_folder, record_name)
-                try:
-                    process_record(input_record_path, output_record_path)
-                except Exception as e:
-                    print(f'Error procesando {input_record_path}: {e}')
-
-if __name__ == '__main__':
-    main()
+print("Done! New standardized dataset in:", OUTPUT_DIR)

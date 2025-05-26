@@ -1,67 +1,53 @@
 import os
-import numpy as np
 import wfdb
 import matplotlib.pyplot as plt
-from scipy.signal import resample
-import random
 
-def load_and_preprocess(path, filename, target_fs=400, target_duration=10):
-    record = wfdb.rdrecord(os.path.join(path, filename))
-    signal = record.p_signal.T  # (12, muestras)
-    original_fs = record.fs
-    
-    if original_fs != target_fs:
-        n_samples = int(signal.shape[1] * target_fs / original_fs)
-        signal = resample(signal, n_samples, axis=1)
-    
-    target_samples = target_fs * target_duration
-    if signal.shape[1] > target_samples:
-        signal = signal[:, :target_samples]
-    elif signal.shape[1] < target_samples:
-        pad_width = target_samples - signal.shape[1]
-        signal = np.pad(signal, ((0,0),(0,pad_width)), 'constant')
-    
-    # Normalización z-score por canal
-    signal_norm = (signal - np.mean(signal, axis=1, keepdims=True)) / np.std(signal, axis=1, keepdims=True)
-    
-    return signal, signal_norm
+# Configuración
+BASE_ORIG_PATH = 'dataset_submuestreado'
+BASE_NORM_PATH = 'dataset_normalizado'
+LABELS = ['positivos', 'negativos']
+CANAL = 'I'  # Cambiar si deseas otro canal (e.g., 'II', 'V1')
+N_MUESTRAS = 4000  # muestras a graficar (10 segundos a 400 Hz)
+N_ARCHIVOS = 3  # Número de archivos por clase a graficar
 
-def plot_comparison(original, normalized, title):
-    plt.figure(figsize=(15, 20))
-    for i in range(12):
-        plt.subplot(12, 2, 2*i+1)
-        plt.plot(original[i])
-        plt.title(f'Derivación {i+1} - Original')
-        plt.grid(True)
-        
-        plt.subplot(12, 2, 2*i+2)
-        plt.plot(normalized[i])
-        plt.title(f'Derivación {i+1} - Normalizada')
-        plt.grid(True)
-    plt.suptitle(title, fontsize=16)
-    plt.tight_layout(rect=[0, 0, 1, 0.97])
-    plt.show()
+for label in LABELS:
+    print(f"\nProcesando clase: {label}")
 
-if __name__ == "__main__":
-    base_path_original = 'dataset_submuestreado'
-    base_path_normalized = 'dataset_normalizado'
-    
-    # Elegir aleatoriamente carpeta
-    folder = random.choice(['positivos', 'negativos'])
-    path_orig = os.path.join(base_path_original, folder)
-    path_norm = os.path.join(base_path_normalized, folder)
-    
-    # Listar señales (sin extensión)
-    archivos = [f[:-4] for f in os.listdir(path_orig) if f.endswith('.dat')]
-    archivo_elegido = random.choice(archivos)
-    
-    print(f"Comparando señal: {archivo_elegido} de la carpeta '{folder}'")
-    
-    # Cargar y procesar señal original
-    signal_orig, signal_proc = load_and_preprocess(path_orig, archivo_elegido)
-    
-    # Cargar señal normalizada guardada
-    signal_norm = np.load(os.path.join(path_norm, archivo_elegido + '.npy'))
-    
-    # Graficar comparación
-    plot_comparison(signal_orig, signal_norm, f'Señal: {archivo_elegido} ({folder})')
+    ORIG_PATH = os.path.join(BASE_ORIG_PATH, label)
+    NORM_PATH = os.path.join(BASE_NORM_PATH, label)
+
+    # Obtener lista de archivos comunes
+    archivos = sorted([f[:-4] for f in os.listdir(ORIG_PATH) if f.endswith('.dat')])
+    archivos_norm = sorted([f[:-4] for f in os.listdir(NORM_PATH) if f.endswith('.dat')])
+    archivos_comunes = list(set(archivos).intersection(archivos_norm))[:N_ARCHIVOS]
+
+    for nombre in archivos_comunes:
+        try:
+            # Cargar registros
+            record_orig = wfdb.rdrecord(os.path.join(ORIG_PATH, nombre))
+            record_norm = wfdb.rdrecord(os.path.join(NORM_PATH, nombre))
+
+            # Buscar índice del canal
+            try:
+                idx = record_orig.sig_name.index(CANAL)
+            except ValueError:
+                print(f"Canal {CANAL} no encontrado en {nombre}, se omite.")
+                continue
+
+            sig_orig = record_orig.p_signal[:, idx]
+            sig_norm = record_norm.p_signal[:, idx]
+
+            # Graficar
+            plt.figure(figsize=(12, 4))
+            plt.plot(sig_orig[:N_MUESTRAS], label='Original', alpha=0.8)
+            plt.plot(sig_norm[:N_MUESTRAS], label='Normalizada', alpha=0.8)
+            plt.title(f'[{label.upper()}] Comparación canal {CANAL} - {nombre}')
+            plt.xlabel('Muestras (a 400 Hz)')
+            plt.ylabel('Amplitud')
+            plt.legend()
+            plt.grid(True)
+            plt.tight_layout()
+            plt.show()
+
+        except Exception as e:
+            print(f"Error procesando {nombre}: {e}")

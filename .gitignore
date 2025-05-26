@@ -4,3 +4,5 @@ venv310/
 test/
 dataset_submuestreado/
 dataset_normalizado/
+samitrop_aumentado/
+dataset_resampled/

@@ -2,7 +2,7 @@ import os
 import random
 import shutil
 
-bases_dir=['samitrop_output','ptbxl_output']
+bases_dir=['samitrop_aumentado','ptbxl_output']
 
 for base in bases_dir:
     root_dir = base

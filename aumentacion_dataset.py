@@ -4,98 +4,103 @@ import numpy as np
 import wfdb
 from scipy.signal import resample
 
-# --- USER PARAMETERS ---
-INPUT_DIR = 'samitrop_output'       # folder with your 815 .hea/.dat pairs
-OUTPUT_DIR = 'samitrop_aumentado'   # will hold 3000 augmented records
-TARGET = 3000                       # total records desired
+# --- PARÁMETROS DE USUARIO ---
+DIR_ENTRADA = 'samitrop_output'        # carpeta con tus 815 pares .hea/.dat originales
+DIR_SALIDA = 'samitrop_aumentado'      # carpeta que contendrá los 3000 registros aumentados
+OBJETIVO = 3000                        # total de registros deseados
 
-# --- SETUP ---
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+# --- CONFIGURACIÓN ---
+os.makedirs(DIR_SALIDA, exist_ok=True)
 
-# 1. find all original record names (basenames without extension)
-records = [fn[:-4] for fn in os.listdir(INPUT_DIR) if fn.lower().endswith('.hea')]
-if not records:
-    raise RuntimeError(f"No .hea files found in {INPUT_DIR!r}")
+# 1. obtén todos los nombres de registros originales (sin extensión)
+registros = [fn[:-4] for fn in os.listdir(DIR_ENTRADA) if fn.lower().endswith('.hea')]
+if not registros:
+    raise RuntimeError(f"No se encontraron archivos .hea en {DIR_ENTRADA!r}")
 
-def read_header_comments(hea_path):
-    """Read and strip the leading '# ' from metadata lines in a .hea file."""
-    comments = []
-    with open(hea_path, 'r') as f:
-        for line in f:
-            if line.startswith('#'):
-                comments.append(line.lstrip('# ').rstrip('\n'))
-    return comments
+def leer_comentarios_encabezado(ruta_hea):
+    """Lee y limpia las líneas de metadatos de un archivo .hea (eliminando '# ')."""
+    comentarios = []
+    with open(ruta_hea, 'r') as f:
+        for linea in f:
+            if linea.startswith('#'):
+                comentarios.append(linea.lstrip('# ').rstrip('\n'))
+    return comentarios
 
-# 2. define augmentation transforms
-def add_gaussian_noise(sig, noise_level=0.02):
-    return sig + np.random.normal(0, noise_level, sig.shape)
+# 2. define transformaciones de aumento
+def agregar_ruido_gaussiano(senal, nivel_ruido=0.02):
+    return senal + np.random.normal(0, nivel_ruido, senal.shape)
 
-def scale_amplitude(sig, lo=0.95, hi=1.05):
-    return sig * np.random.uniform(lo, hi)
+def escalar_amplitud(senal, minimo=0.95, maximo=1.05):
+    return senal * np.random.uniform(minimo, maximo)
 
-def time_shift(sig, max_frac=0.05):
-    n = sig.shape[0]
-    shift = int(np.random.uniform(-max_frac, max_frac) * n)
-    return np.roll(sig, shift, axis=0)
+def desplazamiento_temporal(senal, max_frac=0.05):
+    n = senal.shape[0]
+    desplaz = int(np.random.uniform(-max_frac, max_frac) * n)
+    return np.roll(senal, desplaz, axis=0)
 
-def time_stretch(sig, lo=0.95, hi=1.05):
-    stretch = np.random.uniform(lo, hi)
-    stretched = resample(sig, int(sig.shape[0] * stretch), axis=0)
-    # crop or pad to original length
-    if stretched.shape[0] > sig.shape[0]:
-        return stretched[:sig.shape[0]]
-    pad = np.zeros((sig.shape[0] - stretched.shape[0], sig.shape[1]))
-    return np.vstack([stretched, pad])
+def estiramiento_temporal(senal, minimo=0.95, maximo=1.05):
+    factor = np.random.uniform(minimo, maximo)
+    estirada = resample(senal, int(senal.shape[0] * factor), axis=0)
+    # recorta o rellena para mantener longitud original
+    if estirada.shape[0] > senal.shape[0]:
+        return estirada[:senal.shape[0]]
+    relleno = np.zeros((senal.shape[0] - estirada.shape[0], senal.shape[1]))
+    return np.vstack([estirada, relleno])
 
-def baseline_wander(sig, max_wander=0.02):
-    n, _ = sig.shape
+def deriva_linea_base(senal, max_deriva=0.02):
+    n, _ = senal.shape
     t = np.linspace(0, 2*np.pi, n)
-    drift = (np.sin(t * np.random.uniform(0.5, 2.0)) *
-             np.random.uniform(-max_wander, max_wander))[:, None]
-    return sig + drift
+    deriva = (np.sin(t * np.random.uniform(0.5, 2.0)) *
+              np.random.uniform(-max_deriva, max_deriva))[:, None]
+    return senal + deriva
 
-def augment(sig):
-    """Randomly apply 2–3 of the augmentations."""
-    funcs = [add_gaussian_noise, scale_amplitude, time_shift, time_stretch, baseline_wander]
-    for f in random.sample(funcs, k=random.randint(2,3)):
-        sig = f(sig)
-    return sig
+def aumentar(senal):
+    """Aplica aleatoriamente 2–3 transformaciones de aumento."""
+    funciones = [
+        agregar_ruido_gaussiano,
+        escalar_amplitud,
+        desplazamiento_temporal,
+        estiramiento_temporal,
+        deriva_linea_base
+    ]
+    for func in random.sample(funciones, k=random.randint(2, 3)):
+        senal = func(senal)
+    return senal
 
-# 3. copy originals into OUTPUT_DIR (so you end up with your 815 bases + augments)
-for rec in records:
+# 3. copia los originales a DIR_SALIDA (para tener tus 815 bases + aumentos)
+for reg in registros:
     for ext in ('.hea', '.dat'):
-        src = os.path.join(INPUT_DIR, rec + ext)
-        dst = os.path.join(OUTPUT_DIR, rec + ext)
-        if not os.path.exists(dst):
-            with open(src, 'rb') as f_src, open(dst, 'wb') as f_dst:
-                f_dst.write(f_src.read())
+        origen = os.path.join(DIR_ENTRADA, reg + ext)
+        destino = os.path.join(DIR_SALIDA, reg + ext)
+        if not os.path.exists(destino):
+            with open(origen, 'rb') as f_or, open(destino, 'wb') as f_dst:
+                f_dst.write(f_or.read())
 
-# 4. now generate augmentations up to TARGET
-count = len(records)
-while count < TARGET:
-    orig = random.choice(records)
-    rec = wfdb.rdrecord(os.path.join(INPUT_DIR, orig))
-    sig = rec.p_signal.copy()
-    aug_sig = augment(sig)
+# 4. genera registros aumentados hasta alcanzar OBJETIVO
+contador = len(registros)
+while contador < OBJETIVO:
+    orig = random.choice(registros)
+    registro = wfdb.rdrecord(os.path.join(DIR_ENTRADA, orig))
+    senal = registro.p_signal.copy()
+    senal_aumentada = aumentar(senal)
 
-    # preserve the metadata lines
-    hea_path = os.path.join(INPUT_DIR, orig + '.hea')
-    comments = getattr(rec, 'comments', None) or read_header_comments(hea_path)
+    # conserva las líneas de metadatos
+    ruta_hea = os.path.join(DIR_ENTRADA, orig + '.hea')
+    comentarios = getattr(registro, 'comments', None) or leer_comentarios_encabezado(ruta_hea)
 
-    new_name = f"{orig}_aug{count}"
+    nuevo_nombre = f"{orig}_aug{contador}"
     wfdb.wrsamp(
-        # only the basename goes into the header's first line
-        record_name=new_name,
-        fs=rec.fs,
-        units=rec.units,
-        sig_name=rec.sig_name,
-        p_signal=aug_sig,
-        fmt=rec.fmt,
-        adc_gain=getattr(rec, 'adc_gain', None),
-        baseline=getattr(rec, 'baseline', None),
-        comments=comments,
-        write_dir=OUTPUT_DIR,   # this is where .hea/.dat actually get written
+        record_name=nuevo_nombre,     # solo el nombre base en la cabecera
+        fs=registro.fs,
+        units=registro.units,
+        sig_name=registro.sig_name,
+        p_signal=senal_aumentada,
+        fmt=registro.fmt,
+        adc_gain=getattr(registro, 'adc_gain', None),
+        baseline=getattr(registro, 'baseline', None),
+        comments=comentarios,
+        write_dir=DIR_SALIDA,         # aquí se escriben .hea/.dat
     )
-    count += 1
+    contador += 1
 
-print(f"Done — {count} records (including {count - len(records)} augmentations) in '{OUTPUT_DIR}'.")
+print(f"Hecho — {contador} registros (incluyendo {contador - len(registros)} aumentos) en '{DIR_SALIDA}'.")
